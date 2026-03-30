@@ -1,17 +1,45 @@
-%% Parameters for the SIMULINK simulation
+% SIMULINK_InitialParameters.m
+% Initial parameters for CubeSat reaction wheel Simulink model
 
-J = 0.002;          % spacecraft inertia [kg*m^2]
-Jw = 1e-5;          % wheel inertia [kg*m^2]
+clc;
 
-Kp = 0.02;          % proportional gain
-Kd = 0.01;          % derivative gain
+%% Physical parameters
+J  = 0.002;      % spacecraft inertia [kg*m^2]
+Jw = 1e-5;       % reaction wheel inertia [kg*m^2]
 
-tau_max = 0.002;    % max control torque [N*m]
+%% Control gains
+Kp = 0.02;       % proportional gain for pointing
+Kd = 0.01;       % derivative gain for pointing
+Kd_detumble = 0.03;   % derivative gain for detumbling
 
-theta_ref = 0;              % desired angle [rad]
-theta0 = deg2rad(15);       % initial angle [rad]
-omega0 = deg2rad(8);        % initial body rate [rad/s]
-omega_w0 = 0;               % initial wheel speed [rad/s]
+%% Actuator limit
+tau_max = 0.002; % maximum control torque [N*m]
+
+%% Threshold for switching detumbling -> pointing
+omega_th = deg2rad(0.5);   % [rad/s]
+
+%% Initial conditions
+theta0   = deg2rad(15);    % initial attitude angle [rad]
+omega0   = deg2rad(8);     % initial body angular rate [rad/s] - viteza satelitului
+omega_w0 = 0;              % initial wheel speed [rad/s]  - viteza reaction wheel ului
+
+%% Ask user for reference angle
+theta_ref_deg = input('Enter desired reference angle theta_ref [deg]: ');
+
+while isempty(theta_ref_deg) || ~isnumeric(theta_ref_deg) || ~isscalar(theta_ref_deg)
+    theta_ref_deg = input('Invalid input. Enter theta_ref as a scalar in degrees: ');
+end
+
+theta_ref = deg2rad(theta_ref_deg);
+
+fprintf('theta_ref = %.2f deg = %.4f rad\n', theta_ref_deg, theta_ref);
+
+%% Choose model name
+model_name = 'POINTING_1';   % change this if your .slx has another name
+
+%% Run Simulink model
+open_system(model_name);
+simOut = sim(model_name);
 
 
 % -------------------------------------------------------------------------
