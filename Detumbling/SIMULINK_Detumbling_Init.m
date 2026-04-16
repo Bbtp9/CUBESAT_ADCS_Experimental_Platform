@@ -21,8 +21,8 @@ Kd_detumble = 0.03;   % detumbling gain
 tau_max = 5e-4;      % maximum control torque [N*m]
 
 % -------------------- SWITCHING THRESHOLD --------------------
-omega_high = deg2rad(0.7);
-omega_low  = deg2rad(0.3);
+omega_th_high = deg2rad(0.7);
+omega_th_low  = deg2rad(0.3);
 
 % -------------------- INITIAL CONDITIONS --------------------
 theta0   = deg2rad(15);    % initial attitude angle [rad]
@@ -30,7 +30,7 @@ omega0   = deg2rad(8);     % initial body angular rate [rad/s]
 omega_w0 = 0;              % initial reaction wheel speed [rad/s]
 
 % -------------------- SIMULATION TIME --------------------
-t_stop = 5;               % simulation stop time [s]
+t_stop = 200;               % simulation stop time [s]
 
 % -------------------- REFERENCE INPUT --------------------
 theta_ref_deg = input('Enter desired reference angle theta_ref [deg]: ');
@@ -68,7 +68,7 @@ fprintf('Stop time: %.2f s\n', t_stop);
 save('detumbling_pointing_params.mat', ...
     'J', 'Jw', ...
     'Kp', 'Kd', 'Kd_detumble', ...
-    'tau_max', 'omega_th', ...
+    'tau_max', 'omega_th_high', 'omega_th_low', ...
     'theta0', 'omega0', 'omega_w0', ...
     'theta_ref', 'theta_ref_deg', ...
     't_stop');

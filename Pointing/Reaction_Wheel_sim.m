@@ -1,91 +1,118 @@
+% filepath: /Users/bbtp/Desktop/THESIS/CUBESAT_THESI_VS/Pointing/Reaction_Wheel_sim.m
 % reaction_wheel_sim.m
-% Single-axis CubeSat with one reaction wheel: detumble + pointing
+% Single-axis CubeSat with one reaction wheel: detumble first, then pointing
+
 clear; clc; close all;
 
-% --- Parameters ---
+% --- Spacecraft parameters ---
 J   = 0.002;        % spacecraft inertia [kg*m^2]
 Jw  = 1e-5;         % reaction wheel inertia [kg*m^2]
 
-Kp  = 0.05;         % pointing proportional gain
-Kd  = 0.02;         % derivative gain (pointing)
-Kd_detumble = 0.03; % derivative-only detumble gain
+% --- Control gains ---
+Kp = 0.06;          % pointing proportional term
+Kd = 0.03;          % pointing derivative term
+Kd_detumble = 0.04; % detumble derivative-only term
 
+% --- Actuator limits ---
 tau_max = 0.002;    % max wheel torque [N*m]
-omega_th = deg2rad(0.5);  % detumble threshold [rad/s]
+omega_th_high = deg2rad(1.0); % detumble active above this
+omega_th_low  = deg2rad(0.3); % pointing active below this
 
-% --- Mission / simulation settings ---
-theta_ref_deg = 90;            % desired pointing angle [deg]
+% --- Mission settings ---
+theta_ref_deg = 90;             % desired pointing angle [deg]
 theta_ref = deg2rad(theta_ref_deg);
 
-% Initial conditions - simulate a random tumble
-theta0   = deg2rad( rand*360 - 180 );    % random initial attitude [rad]
-omega0   = deg2rad( 20 * (2*rand-1) );   % random initial body rate up to +/-20 deg/s
-omega_w0 = 0;                            % initial wheel speed [rad/s]
+% --- Initial tumble conditions ---
+theta0_deg = input('Enter initial attitude angle in degrees: ');
+theta0 = deg2rad(theta0_deg);
+omega0_deg = input('Enter initial angular velocity in degrees per second: ');
+omega0 = deg2rad(omega0_deg);
+omega_w0 = 0;
 
 x0 = [theta0; omega0; omega_w0];
-
-tspan = [0 200]; % seconds
+tspan = [0 200];
 
 % --- Run ODE ---
-[t,x] = ode45(@(t,x) dynamics_rw(t,x,J,Jw,Kp,Kd,Kd_detumble,tau_max,theta_ref,omega_th), tspan, x0);
+[t,x] = ode45(@(t,x) dynamics_rw(t,x,J,Jw,Kp,Kd,Kd_detumble,tau_max,theta_ref,omega_th_high,omega_th_low), tspan, x0);
 
 theta   = wrapToPi(x(:,1));
 omega   = x(:,2);
 omega_w = x(:,3);
 
-% Compute control history
+% --- Compute history (including mode) ---
 tau = zeros(size(t));
+mode = zeros(size(t));
 for i = 1:length(t)
-    tau(i) = control_rw([theta(i); omega(i)], Kp, Kd, Kd_detumble, tau_max, theta_ref, omega_th);
+    [tau(i), mode(i)] = control_rw([theta(i); omega(i)], Kp, Kd, Kd_detumble, tau_max, theta_ref, omega_th_high, omega_th_low);
 end
 
-color = [0 0.70 0.70];
+% --- Plot results ---
+figure('Name','Attitude and Mode');
+subplot(3,1,1);
+plot(t, -rad2deg(theta), 'Color', [0 0.8 0.8], 'LineWidth', 1.8); grid on;
+ylabel('-\theta [deg]');
+title(['Attitude (target ' num2str(theta_ref_deg) '°)']);
 
-figure('Name','Attitude (deg)');
-plot(t, rad2deg(theta), 'Color', color, 'LineWidth', 1.6); grid on;
-xlabel('Time [s]'); ylabel('\theta [deg]'); title(['Attitude — target ' num2str(theta_ref_deg) ' deg']);
+subplot(3,1,2);
+plot(t, rad2deg(omega), 'Color', [0.3 0.9 0.5], 'LineWidth', 1.6); grid on;
+ylabel('\omega [deg/s]');
+title('Body rate');
 
-figure('Name','Body Rate (deg/s)');
-plot(t, rad2deg(omega), 'Color', color, 'LineWidth', 1.6); grid on;
-xlabel('Time [s]'); ylabel('\omega [deg/s]'); title('Body angular rate');
+subplot(3,1,3);
+plot(t, mode, 'Color', [0.2 0.0 0.3], 'LineWidth', 1.6); grid on;
+ylabel('Mode'); ylim([0.5 2.5]);
+yticks([1 2]);
+yticklabels({'Detumble', 'Pointing'});
+xlabel('Time [s]');
 
-figure('Name','Reaction Wheel Speed (rad/s)');
-plot(t, omega_w, 'Color', color, 'LineWidth', 1.6); grid on;
-xlabel('Time [s]'); ylabel('\omega_w [rad/s]'); title('Reaction wheel speed');
+figure('Name','Reaction Wheel & Torque');
+subplot(2,1,1);
+plot(t, omega_w, 'Color', [0 0.8 0.8], 'LineWidth', 1.6); grid on;
+ylabel('\omega_w [rad/s]');
+title('Reaction wheel speed');
 
-figure('Name','Control Torque (N*m)');
-plot(t, tau, 'Color', color, 'LineWidth', 1.6); grid on;
-xlabel('Time [s]'); ylabel('\tau [N m]'); title('Control torque');
+subplot(2,1,2);
+plot(t, tau, 'Color', [0.3 0.9 0.5], 'LineWidth', 1.6); grid on;
+ylabel('\tau [N m]');
+xlabel('Time [s]');
+title('Applied control torque');
+
+disp('Simulation ended. Close figures manually or press Enter in Command Window.');
+fig = findall(0,'Type','figure');
+if isempty(fig)
+    warning('No figure windows found.');
+else
+    waitfor(fig);  % mentine ferestrele pana la inchidere manuala
+end
 
 % --- Functions ---
-function tau = control_rw(x, Kp, Kd, Kd_detumble, tau_max, theta_ref, omega_th)
+function [tau, mode] = control_rw(x, Kp, Kd, Kd_detumble, tau_max, theta_ref, omega_th_high, omega_th_low)
     theta = x(1);
     omega = x(2);
 
-    % Mode switching: detumble when body rate large, otherwise pointing
-    if abs(omega) > omega_th
-        % Detumble: derivative-only damping
-        tau_cmd = -Kd_detumble * omega;
+    if abs(omega) > omega_th_high
+        mode = 1; % detumble
+    elseif abs(omega) < omega_th_low
+        mode = 2; % pointing
     else
-        % Pointing: PD on angle error (wrap error to [-pi,pi])
-        err = wrapToPi(theta - theta_ref);
-        tau_cmd = -Kp * err - Kd * omega;
+        mode = 1; % hysteresis: keep detumble until below low threshold
     end
 
-    % Torque saturation
+    if mode == 1
+        tau_cmd = Kd_detumble * omega;
+    else
+        err = wrapToPi(theta_ref - theta);
+        tau_cmd = Kp * err + Kd * omega;
+    end
+
     tau = max(min(tau_cmd, tau_max), -tau_max);
 end
 
-function dx = dynamics_rw(~, x, J, Jw, Kp, Kd, Kd_detumble, tau_max, theta_ref, omega_th)
-    theta   = x(1);
-    omega   = x(2);
-    omega_w = x(3);
+function dx = dynamics_rw(~, x, J, Jw, Kp, Kd, Kd_detumble, tau_max, theta_ref, omega_th_high, omega_th_low)
+    [tau, ~] = control_rw(x, Kp, Kd, Kd_detumble, tau_max, theta_ref, omega_th_high, omega_th_low);
 
-    tau = control_rw([theta; omega], Kp, Kd, Kd_detumble, tau_max, theta_ref, omega_th);
-
-    dtheta   = omega;
-    domega   = -tau / J;    % torque on spacecraft
-    domega_w =  tau / Jw;   % equal and opposite on wheel
-
+    dtheta   = x(2);
+    domega   = -tau / J;
+    domega_w =  tau / Jw;
     dx = [dtheta; domega; domega_w];
 end
