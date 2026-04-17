@@ -9,8 +9,10 @@ if bdIsLoaded(modelName)
 end
 
 % Create new model
+warning('off', 'all');
 new_system(modelName);
 open_system(modelName);
+warning('on', 'all');
 
 % -------------------------------------------------------------------------
 % 1. ROOT LEVEL BLOCKS

@@ -2,7 +2,7 @@
 % Automatically generates a structured Simulink model for Detumbling and Pointing
 
 % clc; clear; % Do NOT clear workspace here!
-modelName = 'Cubesat_Control_System';
+modelName = 'Cubesat_Control_LQR';
 
 % Close if already open
 if bdIsLoaded(modelName)

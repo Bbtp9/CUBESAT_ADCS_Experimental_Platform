@@ -32,7 +32,7 @@ theta_ref= deg2rad(theta_ref_deg);
 omega0   = deg2rad(omega0_deg);
 omega_w0 = 0;                      
 
-t_stop = 300;                      
+t_stop = 30;                      
 
 disp(' ');
 disp('[*] Physical Parameters Loaded.');

@@ -1,4 +1,4 @@
-% init_simulation.m
+% init_simulation_pd.m
 % Initialization script for complete CubeSat Attitude Control Run
 
 clear; close all; clc;
@@ -41,7 +41,7 @@ theta_ref= deg2rad(theta_ref_deg); % commanded angle
 omega0   = deg2rad(omega0_deg);
 omega_w0 = 0;                      % wheel starts at 0
 
-t_stop = 300;                      % Simulate for 300 seconds
+t_stop = 30;                       % Simulate for 30 seconds
 
 disp(' ');
 disp('[*] Parameters Loaded. Generating the full Simulink Model...');
@@ -50,13 +50,13 @@ disp('[*] Parameters Loaded. Generating the full Simulink Model...');
 % build_simulink_model; % Model is already built, no need to recreate
 
 %% 4. Run the Simulation
-disp('[*] Simulating Cubesat_Control_System.slx ...');
-simOut = sim('Cubesat_Control_System.slx');
+disp('[*] Simulating Cubesat_Control_PD.slx ...');
+simOut = sim('Cubesat_Control_PD.slx');
 
 disp('[+] Simulation complete! Extracting data for plotting...');
 
 %% 5. Plot Results
-plot_cubesat_results;
+plot_cubesat_results_rt;
 
 disp('==================================================');
 disp('                SEQUENCE COMPLETE                 ');
