@@ -3,7 +3,18 @@ function tau = control_rw(x, Kp, Kd, Kd_detumble, tau_max, theta_ref, omega_th)
     theta = x(1);
     omega = x(2);
 
-    if abs(omega) > omega_th
+    persistent mode_active;
+    if isempty(mode_active)
+        mode_active = 1; % detumble by default
+    end
+
+    if mode_active == 1
+        if abs(omega) < omega_th
+            mode_active = 2; % switch to pointing permanently
+        end
+    end
+
+    if mode_active == 1
         tau_cmd = -Kd_detumble * omega;
     else
         err = wrapToPi(theta - theta_ref);

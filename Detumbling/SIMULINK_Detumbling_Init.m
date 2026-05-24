@@ -9,8 +9,8 @@ clear
 model_name = 'DETUMBLE_POINTING';   % name of your .slx model
 
 % -------------------- PHYSICAL PARAMETERS --------------------
-J  = 0.002;      % spacecraft inertia [kg*m^2]
-Jw = 1e-4;       % reaction wheel inertia [kg*m^2]
+J  = 0.000634;   % spacecraft inertia [kg*m^2]
+Jw = 4.607e-5;   % reaction wheel inertia [kg*m^2]
 
 % -------------------- CONTROL GAINS --------------------
 Kp          = 0.02;   % proportional gain for pointing

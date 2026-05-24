@@ -3,6 +3,9 @@
 
 clear; close all; clc;
 
+% Add the simulink folder to the MATLAB search path
+addpath(fullfile(fileparts(mfilename('fullpath')), '..', 'simulink'));
+
 disp('==================================================');
 disp('   CUBESAT DETUMBLING AND POINTING CONTROLLER     ');
 disp('==================================================');
@@ -19,19 +22,20 @@ while isempty(theta_ref_deg) || ~isnumeric(theta_ref_deg)
     theta_ref_deg = input('Invalid input. Enter a number [deg]: ');
 end
 
+
 %% 2. Set Physical and Controller Parameters
 % Cubesat and Wheel Inertias
-J  = 0.002;      % spacecraft inertia [kg*m^2]
-Jw = 1e-5;       % reaction wheel inertia [kg*m^2]
+J  = 0.000634;   % spacecraft inertia [kg*m^2]
+Jw = 4.607e-5;   % reaction wheel inertia [kg*m^2]
 
 % Controller Gains
-Kp = 0.02;             % proportional pointing gain
+Kp = 0.002;             % proportional pointing gain
 Kd = 0.01;             % derivative pointing gain
-Kd_detumble = 0.03;    % derivative detumbling gain
+Kd_detumble = 0.003;    % derivative detumbling gain
 
 % Constraints & Thresholds
 tau_max  = 0.002;                % max torque [Nm]
-omega_th_high = deg2rad(10000);  % artificially huge so it never switches BACK to detumbling
+omega_th_high = deg2rad(10000);  % artificially huge so it never switches BACK to detumbling once pointing is active
 omega_th_low  = deg2rad(0.3);    % switch to pointing threshold
 
 % Initial Conditions (Convert user inputs to radians)
@@ -41,13 +45,39 @@ theta_ref= deg2rad(theta_ref_deg); % commanded angle
 omega0   = deg2rad(omega0_deg);
 omega_w0 = 0;                      % wheel starts at 0
 
-t_stop = 30;                       % Simulate for 30 seconds
+t_stop = 20;                       % Simulate for 30 seconds
 
 disp(' ');
-disp('[*] Parameters Loaded. Generating the full Simulink Model...');
+disp('[*] Parameters Loaded. Using the existing Cubesat_Control_PD.slx model...');
 
-%% 3. Build Simulink Model
-% build_simulink_model; % Model is already built, no need to recreate
+%% 3. Apply shortest path wrapping to Cubesat_Control_PD.slx if not already done
+try
+    disp('[*] Checking/Applying shortest path logic to Cubesat_Control_PD.slx...');
+    modelName = 'Cubesat_Control_PD';
+    load_system(modelName);
+    ctrlPath = [modelName '/Attitude_Controller'];
+    if isempty(find_system(ctrlPath, 'Name', 'Wrap_To_Pi'))
+        % Add MATLAB Fcn block to wrap angle error
+        add_block('simulink/User-Defined Functions/MATLAB Fcn', [ctrlPath '/Wrap_To_Pi']);
+        set_param([ctrlPath '/Wrap_To_Pi'], 'MATLABFcn', 'wrapToPi', 'Position', [170, 60, 210, 90]);
+        
+        % Delete direct connection between Sum_Error and Kp_Gain
+        delete_line(ctrlPath, 'Sum_Error/1', 'Kp_Gain/1');
+        
+        % Re-route: Sum_Error -> Wrap_To_Pi -> Kp_Gain
+        add_line(ctrlPath, 'Sum_Error/1', 'Wrap_To_Pi/1', 'autorouting', 'on');
+        add_line(ctrlPath, 'Wrap_To_Pi/1', 'Kp_Gain/1', 'autorouting', 'on');
+        
+        save_system(modelName);
+        disp('[+] Shortest path wrapping (wrapToPi) applied to Cubesat_Control_PD.slx!');
+    else
+        disp('[*] Shortest path wrapping (wrapToPi) is already configured in the model.');
+    end
+    close_system(modelName);
+catch ME
+    disp(['[!] Could not modify Simulink model programmatically: ' ME.message]);
+    disp('[!] Please ensure Cubesat_Control_PD.slx is closed and in the MATLAB path.');
+end
 
 %% 4. Run the Simulation
 disp('[*] Simulating Cubesat_Control_PD.slx ...');

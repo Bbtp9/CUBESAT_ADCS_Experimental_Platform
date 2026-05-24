@@ -20,8 +20,8 @@ while isempty(theta_ref_deg) || ~isnumeric(theta_ref_deg)
 end
 
 %% 2. Set Physical Parameters
-J  = 0.002;      % spacecraft inertia [kg*m^2]
-Jw = 1e-5;       % reaction wheel inertia [kg*m^2]
+J  = 0.000634;   % spacecraft inertia [kg*m^2]
+Jw = 4.607e-5;   % reaction wheel inertia [kg*m^2]
 
 tau_max  = 0.002;                % max torque [Nm]
 omega_th_high = deg2rad(10000);  % artificially huge so it never switches BACK to detumbling

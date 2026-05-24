@@ -8,8 +8,8 @@ import time
 from math import radians
 
 # --- Parameters ---
-J = 0.002
-Jw = 1e-5
+J = 0.000634
+Jw = 4.607e-05
 Kp = 0.05
 Kd = 0.02
 Kd_detumble = 0.03

@@ -5,8 +5,8 @@
 clear; clc; close all;
 
 % --- Spacecraft parameters ---
-J   = 0.002;        % spacecraft inertia [kg*m^2]
-Jw  = 1e-5;         % reaction wheel inertia [kg*m^2]
+J   = 0.000634;     % spacecraft inertia [kg*m^2]
+Jw  = 4.607e-5;     % reaction wheel inertia [kg*m^2]
 
 % --- Control gains ---
 Kp = 0.06;          % pointing proportional term
@@ -90,13 +90,17 @@ function [tau, mode] = control_rw(x, Kp, Kd, Kd_detumble, tau_max, theta_ref, om
     theta = x(1);
     omega = x(2);
 
-    if abs(omega) > omega_th_high
-        mode = 1; % detumble
-    elseif abs(omega) < omega_th_low
-        mode = 2; % pointing
-    else
-        mode = 1; % hysteresis: keep detumble until below low threshold
+    persistent mode_active;
+    if isempty(mode_active)
+        mode_active = 1; % detumble by default
     end
+
+    if mode_active == 1
+        if abs(omega) < omega_th_low
+            mode_active = 2; % switch to pointing permanently
+        end
+    end
+    mode = mode_active;
 
     if mode == 1
         tau_cmd = Kd_detumble * omega;

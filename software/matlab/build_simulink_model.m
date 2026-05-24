@@ -2,7 +2,7 @@
 % Automatically generates a structured Simulink model for Detumbling and Pointing
 
 % clc; clear; % Do NOT clear workspace here!
-modelName = 'Cubesat_Control_LQR';
+modelName = 'Cubesat_Control_PD';
 
 % Close if already open
 if bdIsLoaded(modelName)
@@ -208,4 +208,4 @@ set_param(modelName, 'Solver', 'ode45', 'StopTime', 't_stop');
 save_system(modelName, ['/Users/bbtp/Desktop/THESIS/CUBESAT_THESI_VS/' modelName '.slx']);
 close_system(modelName);
 
-disp('Simulink model Cubesat_Control_System.slx has been thoroughly generated!');
+disp('Simulink PD model Cubesat_Control_PD.slx has been thoroughly generated!');

@@ -4,8 +4,8 @@
 clc;
 
 %% Physical parameters
-J  = 0.002;      % spacecraft inertia [kg*m^2]
-Jw = 1e-5;       % reaction wheel inertia [kg*m^2]
+J  = 0.000634;   % spacecraft inertia [kg*m^2]
+Jw = 4.607e-5;   % reaction wheel inertia [kg*m^2]
 
 %% Control gains
 Kp = 0.02;       % proportional gain for pointing
