@@ -21,7 +21,7 @@ void loop() {
 
   Serial.println("Scanning...");
 
-  address = 0x53; 
+  address = 0x69; 
 
    // Wire.beginTransmission(address);
     //Wire.write(0);
@@ -32,7 +32,8 @@ void loop() {
     delay(1);
     while (Wire.available()) {
       int c = Wire.read();  // Receive a byte as character
-      Serial.print(c,HEX);       // Print the character
+      Serial.print(c,HEX); 
+      Wire.requestFrom(address,1);      // Print the character
     };
     Serial.println();
 delay(5000);

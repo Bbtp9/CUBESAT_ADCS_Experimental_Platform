@@ -19,8 +19,8 @@
 
 #include <Wire.h>
 
-#define SDA_PIN 21
-#define SCL_PIN 22
+#define SDA_PIN 1
+#define SCL_PIN 0
 
 void setup() {
   Serial.begin(115200);

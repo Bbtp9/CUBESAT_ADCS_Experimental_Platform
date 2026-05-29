@@ -30,7 +30,7 @@ Jw = 4.607e-5;   % reaction wheel inertia [kg*m^2]
 
 % Controller Gains
 Kp = 0.002;             % proportional pointing gain
-Kd = 0.01;             % derivative pointing gain
+Kd = 0.01;              % derivative pointing gain
 Kd_detumble = 0.003;    % derivative detumbling gain
 
 % Constraints & Thresholds
