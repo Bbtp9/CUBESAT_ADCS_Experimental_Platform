@@ -2,7 +2,7 @@ const int IN1 = 2;
 const int IN2 = 3;
 const int EEP = 14;
 const int Resolution = 10;
-const int Frequency = 5000;
+const int Frequency = 500;
 
 void setup() {
 

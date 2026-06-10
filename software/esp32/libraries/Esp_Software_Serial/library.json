@@ -1,0 +1,33 @@
+{
+    "name": "Esp_Software_Serial",
+    "version": "8.3.1",
+    "description": "Implementation of the Arduino software serial for ESP8266/ESP32.",
+    "keywords": [
+        "serial", "io", "softwareserial"
+    ],
+    "repository":
+    {
+        "type": "git",
+        "url": "https://github.com/sndnvaps/espsoftwareserial"
+    },
+    "authors": [
+        {
+            "name": "Dirk Kaar"
+        },
+        {
+            "name": "Peter Lerup"
+        },
+        {
+            "name": "Jimes Yang"
+        }
+    ],
+    "license": "LGPL-2.1+",
+    "frameworks": "arduino",
+    "platforms": [
+        "espressif8266", "espressif32"
+    ],
+    "dependencies":
+    {
+        "dok-net/ghostl": "^1.0.0"
+    }
+}

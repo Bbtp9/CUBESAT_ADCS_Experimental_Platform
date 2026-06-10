@@ -6,18 +6,21 @@ classdef BLEHILSystemObject < matlab.System & matlab.system.mixin.Propagates
     
     %#codegen
     properties (Nontunable)
-        DeviceName = 'CubeSat_ESP32'
-        ServiceUUID = '12345678-1234-1234-1234-1234567890AB'
-        CharacteristicUUID = '87654321-4321-4321-4321-BA0987654321'
+        DeviceName = 'ESP32_IMU'
+        ServiceUUID = '12345678-1234-1234-1234-123456789abc'
+        TelemetryUUID = '87654321-4321-4321-4321-cba987654321'
+        MotorUUID = '87654321-4321-4321-4321-cba987654326'
     end
     
     properties (Access = private)
         BleDevice = []
-        BleChar = []
+        BleTelemetryChar = []
+        BleMotorChar = []
         LastTime = []
         ThetaFused = 0
         LastFusedHdg = 0
         LastGz = 0
+        TauMax = 0.002
     end
     
     methods (Access = protected)
@@ -33,15 +36,16 @@ classdef BLEHILSystemObject < matlab.System & matlab.system.mixin.Propagates
                 devices = blelist;
                 idx = find(strcmp(devices.Name, obj.DeviceName), 1);
                 if isempty(idx)
-                    error('CubeSat_ESP32 BLE device not found! Make sure the ESP32 is powered on and advertising.');
+                    error('ESP32_IMU BLE device not found! Make sure the ESP32 is powered on and advertising.');
                 end
                 
                 deviceAddress = devices.Address(idx);
                 fprintf('[+] Found %s at Address: %s\n', obj.DeviceName, deviceAddress);
                 
-                % Connect to device and characteristic
+                % Connect to device and characteristics
                 obj.BleDevice = ble(deviceAddress);
-                obj.BleChar = characteristic(obj.BleDevice, obj.ServiceUUID, obj.CharacteristicUUID);
+                obj.BleTelemetryChar = characteristic(obj.BleDevice, obj.ServiceUUID, obj.TelemetryUUID);
+                obj.BleMotorChar = characteristic(obj.BleDevice, obj.ServiceUUID, obj.MotorUUID);
                 disp('[+] BLE Connection established successfully!');
                 
                 % Initialize states
@@ -58,36 +62,40 @@ classdef BLEHILSystemObject < matlab.System & matlab.system.mixin.Propagates
         end
         
         function [fused_hdg_deg, raw_hdg_deg, gz_deg_s, mx, my, mz, tau_mNm] = stepImpl(obj, tau_cmd)
-            % 1. Send the current torque command to the ESP32 via BLE
-            if ~isempty(obj.BleChar)
-                cmd_str = sprintf("CMD_TAU:%.6f", tau_cmd);
+            % 1. Send the current torque command (converted to PWM) to the ESP32 via BLE
+            if ~isempty(obj.BleMotorChar)
+                pwm_cmd = round((tau_cmd / obj.TauMax) * 1023);
+                pwm_cmd = max(min(pwm_cmd, 1023), -1023);
+                cmd_str = sprintf("%d", pwm_cmd);
                 try
-                    write(obj.BleChar, uint8(char(cmd_str)), "WithResponse");
+                    write(obj.BleMotorChar, uint8(char(cmd_str)));
                     
-                    % 2. Read back the updated IMU sensor data
-                    raw = read(obj.BleChar);
-                    data = str2double(split(string(char(raw)), ","));
-                    
-                    if numel(data) == 7 && all(~isnan(data))
-                        gz = data(6); % Gyro Z rate in rad/s
-                        obj.LastGz = rad2deg(gz);
+                    % 2. Read back the updated IMU sensor data from telemetry characteristic
+                    if ~isempty(obj.BleTelemetryChar)
+                        raw = read(obj.BleTelemetryChar);
+                        data = sscanf(char(raw), '%f');
                         
-                        % Compute dt
-                        dt = toc(obj.LastTime);
-                        obj.LastTime = tic;
-                        if dt <= 0 || dt > 0.5
-                            dt = 0.1;
+                        if numel(data) == 11 && all(~isnan(data))
+                            gz = data(6); % Gyro Z rate in rad/s
+                            obj.LastGz = rad2deg(gz);
+                            
+                            % Compute dt
+                            dt = toc(obj.LastTime);
+                            obj.LastTime = tic;
+                            if dt <= 0 || dt > 0.5
+                                dt = 0.1;
+                            end
+                            
+                            % Integrate Gyro Z to compute attitude angle
+                            obj.ThetaFused = obj.ThetaFused + gz * dt;
+                            obj.ThetaFused = wrapToPi(obj.ThetaFused);
+                            
+                            fused_hdg = rad2deg(obj.ThetaFused);
+                            if fused_hdg < 0
+                                fused_hdg = fused_hdg + 360;
+                            end
+                            obj.LastFusedHdg = fused_hdg;
                         end
-                        
-                        % Integrate Gyro Z to compute attitude angle
-                        obj.ThetaFused = obj.ThetaFused + gz * dt;
-                        obj.ThetaFused = wrapToPi(obj.ThetaFused);
-                        
-                        fused_hdg = rad2deg(obj.ThetaFused);
-                        if fused_hdg < 0
-                            fused_hdg = fused_hdg + 360;
-                        end
-                        obj.LastFusedHdg = fused_hdg;
                     end
                 catch
                     % Maintain last states on communication glitch
@@ -106,10 +114,10 @@ classdef BLEHILSystemObject < matlab.System & matlab.system.mixin.Propagates
         
         function releaseImpl(obj)
             % Send stop command and disconnect BLE
-            if ~isempty(obj.BleChar)
+            if ~isempty(obj.BleMotorChar)
                 try
-                    write(obj.BleChar, uint8("CMD_TAU:0.0"), "WithResponse");
-                    disp('[+] Sent stop command (0.0 torque) to CubeSat.');
+                    write(obj.BleMotorChar, uint8("0"));
+                    disp('[+] Sent stop command (0 torque) to CubeSat.');
                 catch
                 end
             end

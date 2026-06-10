@@ -25,22 +25,24 @@ catch ME
     error('BLE is not supported or Bluetooth is turned off on this machine. Error: %s', ME.message);
 end
 
-% Search for the CubeSat_ESP32 device name
-idx = find(strcmp(devices.Name, "CubeSat_ESP32"), 1);
+% Search for the ESP32_IMU device name
+idx = find(strcmp(devices.Name, "ESP32_IMU"), 1);
 if isempty(idx)
-    error('[-] CubeSat_ESP32 device not found! Make sure the ESP32 is powered on and advertising.');
+    error('[-] ESP32_IMU device not found! Make sure the ESP32 is powered on and advertising.');
 end
 
 deviceAddress = devices.Address(idx);
-fprintf('[+] Found CubeSat_ESP32! Address/UUID: %s\n', deviceAddress);
-disp('[*] Connecting to CubeSat_ESP32 BLE Service...');
+fprintf('[+] Found ESP32_IMU! Address/UUID: %s\n', deviceAddress);
+disp('[*] Connecting to ESP32_IMU BLE Service...');
 
-serviceUUID = "12345678-1234-1234-1234-1234567890AB";
-charUUID    = "87654321-4321-4321-4321-BA0987654321";
+serviceUUID   = "12345678-1234-1234-1234-123456789abc";
+telemetryUUID = "87654321-4321-4321-4321-cba987654321";
+motorUUID     = "87654321-4321-4321-4321-cba987654326";
 
 try
     b = ble(deviceAddress);
-    c = characteristic(b, serviceUUID, charUUID);
+    c = characteristic(b, serviceUUID, telemetryUUID);
+    m = characteristic(b, serviceUUID, motorUUID);
     disp('[+] Connection established successfully!');
 catch ME
     error('[-] Failed to connect to BLE device: %s', ME.message);
@@ -58,27 +60,39 @@ if isempty(ctrl_choice) || ~ismember(ctrl_choice, [1, 2])
     ctrl_choice = 2; % Default to LQR
 end
 
-theta_ref_deg = input('>> Enter Target Reference Angle [deg] (default 45): ');
-if isempty(theta_ref_deg) || ~isnumeric(theta_ref_deg)
-    theta_ref_deg = 45;
-end
-theta_ref = deg2rad(theta_ref_deg);
-
 % Satellite Physical Constants
 J  = 0.000634;     % Spacecraft body inertia [kg*m^2]
 Jw = 4.607e-5;     % Reaction wheel inertia [kg*m^2]
-tau_max = 0.002;   % Maximum control torque [Nm]
 
-% Initialize gains depending on selected controller
+% Load controller parameters from Workspace if they exist, otherwise use defaults
+if evalin('base', "exist('tau_max', 'var')")
+    tau_max = evalin('base', 'tau_max');
+else
+    tau_max = 0.002;   % Maximum control torque [Nm]
+end
+
+if evalin('base', "exist('Kd_detumble', 'var')")
+    Kd_detumble = evalin('base', 'Kd_detumble');
+else
+    Kd_detumble = 0.03;  % Detumbling Gain
+end
+
+% Initialize pointing gains depending on selected controller
 if ctrl_choice == 1
     ctrl_name = 'Manual PD';
-    % Gains in terms of K = [-Kp, -Kd] as defined in compare_PD_LQR
-    Kp = 0.02;
-    Kd = 0.01;
+    if evalin('base', "exist('Kp', 'var')")
+        Kp = evalin('base', 'Kp');
+    else
+        Kp = 0.02;
+    end
+    if evalin('base', "exist('Kd', 'var')")
+        Kd = evalin('base', 'Kd');
+    else
+        Kd = 0.01;
+    end
     K_ctrl = [-Kp, -Kd];
 else
     ctrl_name = 'Optimal LQR';
-    % Analytical Riccati solver matching compare_PD_LQR
     Q = [50, 0; 0, 5];
     R = 1;
     q1 = Q(1,1);
@@ -88,23 +102,24 @@ else
     K_ctrl = [K1_lqr, K2_lqr];
 end
 
-fprintf('\n[+] Selected: %s\n', ctrl_name);
+fprintf('\n[+] Selected Pointing Mode: %s\n', ctrl_name);
 fprintf('    Control Gain Matrix K: [%.6f, %.6f]\n', K_ctrl(1), K_ctrl(2));
-fprintf('    Target Reference Angle: %.2f deg (%.4f rad)\n', theta_ref_deg, theta_ref);
-disp('Press ENTER to start the real-time control loop...');
+fprintf('    Detumbling Rate Gain: %.4f\n', Kd_detumble);
+disp('Press ENTER to start Phase 1 (Detumbling)...');
 input('');
 
 %% 3. Setup Premium Dark-Theme Live Visualizer
-fig = figure('Color', 'k', 'Name', ['Real-Time CubeSat Control - ' ctrl_name], 'Position', [100, 100, 1000, 700]);
+fig = figure('Color', 'k', 'Name', ['Real-Time CubeSat Mission - ' ctrl_name], 'Position', [100, 100, 1000, 700]);
 
 % Subplot 1: Attitude Angle (Theta)
 ax1 = subplot(2, 1, 1);
 h_theta = animatedline('Color', [0.00 0.80 0.80], 'LineWidth', 2.5); % Turquoise
-h_ref   = yline(theta_ref_deg, 'w:', 'LineWidth', 1.5);              % White dotted reference line
+h_ref   = yline(0, 'w:', 'LineWidth', 1.5);                         % Hidden reference line initially
+set(h_ref, 'Visible', 'off');
 grid on;
 ylabel('\theta_z [deg]', 'Color', 'w');
 title(['Real-Time Attitude Angle vs Target Reference (' ctrl_name ')'], 'Color', 'w', 'FontSize', 12);
-legend('Live Angle (\theta_z)', 'Target Reference', 'TextColor', 'w', 'Location', 'southeast', 'Color', 'none', 'EdgeColor', 'none');
+legend('Live Angle (\theta_z)', 'Target Reference (Not Set)', 'TextColor', 'w', 'Location', 'southeast', 'Color', 'none', 'EdgeColor', 'none');
 
 % Subplot 2: Control Torque (Tau)
 ax2 = subplot(2, 1, 2);
@@ -128,14 +143,12 @@ for ax = [ax1, ax2]
             'FontSize', 11);
 end
 
-%% 4. Real-Time Acquisition & Control Loop
+%% 4. Real-Time Acquisition & Mission Control Loop
 thetaZ = 0;             % Integrated attitude angle [rad]
 lastT = tic;            % Timer for dt calculation
 t0 = tic;               % Global timer
-total_duration = 30;    % Run loop for 30 seconds
 sampling_rate = 10;     % Loop frequency (approx 10 Hz)
 pause_time = 1 / sampling_rate;
-num_iterations = total_duration * sampling_rate;
 
 % History arrays for Workspace Export
 history_time  = [];
@@ -143,75 +156,186 @@ history_theta = [];
 history_omega = [];
 history_tau   = [];
 
-% Start with an initial torque command of 0
-tau_sat = 0;
-
-disp('[*] Real-Time Control Loop Engaged. Telemetry streaming starting...');
+% ==================================================
+%   PHASE 1: DETUMBLING (RATE DAMPING)
+% ==================================================
+disp('[*] Starting Phase 1: Detumbling (Damping rates)...');
 disp('--------------------------------------------------');
 
-for k = 1:num_iterations
+stable_count = 0;
+stable_threshold = deg2rad(0.5); % Stable if below 0.5 deg/s
+stable_required = 10;            % 10 samples (1 second at 10 Hz)
+max_detumble_iterations = 150;    % Max 15 seconds
+
+tau_sat = 0;
+
+for k = 1:max_detumble_iterations
     if ~ishandle(fig)
         disp('[-] Figure closed by user. Terminating loop.');
         break;
     end
     
-    % Streamlined Single-Write BLE Architecture:
-    % MATLAB writes the current saturated torque command back to the ESP32.
-    % The ESP32 immediately applies it, reads the MPU6050, and updates its
-    % characteristic value with the fresh IMU data in one step!
-    cmd_str = sprintf("CMD_TAU:%.6f", tau_sat);
+    % Send torque command & read telemetry
+    pwm_cmd = round((tau_sat / tau_max) * 1023);
+    pwm_cmd = max(min(pwm_cmd, 1023), -1023);
+    cmd_str = sprintf("%d", pwm_cmd);
+    
     try
-        write(c, uint8(char(cmd_str)), "WithResponse");
-        pause(0.06); % Allow ESP32 a brief window to process write and update MPU6050
+        write(m, uint8(char(cmd_str)));
+        pause(0.04);
         raw = read(c);
-        data = str2double(split(string(char(raw)), ","));
+        data = sscanf(char(raw), '%f');
     catch ME
         warning('BLE communication dropped a package. Retrying... Error: %s', ME.message);
         continue;
     end
     
-    % Verify valid package formatting (expecting 7 numbers: Ax, Ay, Az, Gx, Gy, Gz, Temp)
-    if numel(data) == 7 && all(~isnan(data))
-        % Extract values
+    if numel(data) == 11 && all(~isnan(data))
         gz = data(6);  % Gyroscope Z-axis [rad/s]
-        
-        % Calculate actual dt (elapsed time)
         dt = toc(lastT);
         lastT = tic;
         
-        % Integrate Gyro Z rate to calculate current Attitude Angle
+        % Integrate angle
         thetaZ = thetaZ + gz * dt;
         thetaDeg = rad2deg(thetaZ);
         t = toc(t0);
         
-        % Calculate State Error (wrap angle to standard range [-pi, pi])
-        theta_err = wrapToPi(thetaZ - theta_ref);
-        
-        % Calculate required Control Torque command (u = -K * x)
-        tau_cmd = -K_ctrl * [theta_err; gz];
-        
-        % Apply Actuator Saturation limits
+        % Damping controller: u = -Kd * omega
+        tau_cmd = -Kd_detumble * gz;
         tau_sat = max(min(tau_cmd, tau_max), -tau_max);
         
-        % Log history for export
+        % Log history
         history_time  = [history_time; t];
         history_theta = [history_theta; thetaDeg];
         history_omega = [history_omega; rad2deg(gz)];
         history_tau   = [history_tau; tau_sat];
         
-        % Update Real-Time Plots
+        % Update Plots
         addpoints(h_theta, t, thetaDeg);
-        addpoints(h_tau, t, tau_sat * 1000); % Plotted in mNm for visual clarity!
+        addpoints(h_tau, t, tau_sat * 1000);
         drawnow limitrate;
         
-        % Print Real-Time Telemetry to Command Window
-        fprintf("t=%5.2fs | Gz=%7.4f rad/s | Theta=%6.2f° | Error=%6.2f° | Torque=%8.5f mNm\n", ...
-                t, gz, thetaDeg, rad2deg(theta_err), tau_sat * 1000);
+        fprintf("t=%5.2fs | DETUMBLE | Gz=%7.4f rad/s (%5.2f deg/s) | Theta=%6.2f deg\n", ...
+                t, gz, rad2deg(gz), thetaDeg);
+        
+        % Check stability
+        if abs(gz) < stable_threshold
+            stable_count = stable_count + 1;
+        else
+            stable_count = 0;
+        end
+        
+        if stable_count >= stable_required
+            disp('[+] Stabilization detected.');
+            break;
+        end
+    end
+    pause(pause_time - 0.05);
+end
+
+% Ensure motor is stopped after detumbling
+write(m, uint8("0"));
+disp('[*] Motor stopped. Measuring settled heading...');
+pause(1.5);
+
+% Read settled heading
+try
+    raw = read(c);
+    data = sscanf(char(raw), '%f');
+    if numel(data) == 11 && all(~isnan(data))
+        settled_heading = data(11);
     else
-        fprintf("[-] Invalid BLE packet received: [%s]\n", char(raw));
+        settled_heading = rad2deg(thetaZ);
+    end
+catch
+    settled_heading = rad2deg(thetaZ);
+end
+
+fprintf('\n==================================================\n');
+fprintf('   [+] DETUMBLING COMPLETE!\n');
+fprintf('   CubeSat settled at:\n');
+fprintf('   -> Current Heading: %.2f deg\n', settled_heading);
+fprintf('   -> Integrated Theta: %.2f deg\n', rad2deg(thetaZ));
+fprintf('==================================================\n\n');
+
+% ==================================================
+%   INTER-PHASE USER INPUT
+% ==================================================
+theta_ref_deg = input('>> Enter Target Pointing Heading/Angle [deg] (0 to 360): ');
+if isempty(theta_ref_deg) || ~isnumeric(theta_ref_deg)
+    theta_ref_deg = 45;
+end
+theta_ref = deg2rad(theta_ref_deg);
+
+% Set reference line visible and update value
+set(h_ref, 'Value', theta_ref_deg);
+set(h_ref, 'Visible', 'on');
+legend(ax1, 'Live Angle (\theta_z)', 'Target Reference', 'TextColor', 'w', 'Location', 'southeast', 'Color', 'none', 'EdgeColor', 'none');
+
+% Reset times for Phase 2 continuity or keep absolute time
+disp(' ');
+disp('[*] Starting Phase 2: Attitude Pointing (shortest-path control)...');
+disp('--------------------------------------------------');
+
+% Start with an initial torque command of 0
+tau_sat = 0;
+lastT = tic; % Reset dt timer
+
+pointing_duration = 30; % 30 seconds for pointing
+num_pointing_iterations = pointing_duration * sampling_rate;
+
+for k = 1:num_pointing_iterations
+    if ~ishandle(fig)
+        disp('[-] Figure closed by user. Terminating loop.');
+        break;
     end
     
-    pause(pause_time - 0.06); % Adjust for BLE delay to maintain ~10Hz
+    pwm_cmd = round((tau_sat / tau_max) * 1023);
+    pwm_cmd = max(min(pwm_cmd, 1023), -1023);
+    cmd_str = sprintf("%d", pwm_cmd);
+    
+    try
+        write(m, uint8(char(cmd_str)));
+        pause(0.04);
+        raw = read(c);
+        data = sscanf(char(raw), '%f');
+    catch ME
+        warning('BLE communication dropped a package. Retrying... Error: %s', ME.message);
+        continue;
+    end
+    
+    if numel(data) == 11 && all(~isnan(data))
+        gz = data(6);  % Gyroscope Z-axis [rad/s]
+        dt = toc(lastT);
+        lastT = tic;
+        
+        % Integrate angle
+        thetaZ = thetaZ + gz * dt;
+        thetaDeg = rad2deg(thetaZ);
+        t = toc(t0);
+        
+        % Calculate wrapped error (shortest path)
+        theta_err = wrapToPi(thetaZ - theta_ref);
+        
+        % Calculate Pointing Control torque command: u = -K * [error; gz]
+        tau_cmd = -K_ctrl * [theta_err; gz];
+        tau_sat = max(min(tau_cmd, tau_max), -tau_max);
+        
+        % Log history
+        history_time  = [history_time; t];
+        history_theta = [history_theta; thetaDeg];
+        history_omega = [history_omega; rad2deg(gz)];
+        history_tau   = [history_tau; tau_sat];
+        
+        % Update Plots
+        addpoints(h_theta, t, thetaDeg);
+        addpoints(h_tau, t, tau_sat * 1000);
+        drawnow limitrate;
+        
+        fprintf("t=%5.2fs | POINTING | Gz=%7.4f rad/s | Theta=%6.2f deg | Error=%6.2f deg | Torque=%8.5f mNm\n", ...
+                t, gz, thetaDeg, rad2deg(theta_err), tau_sat * 1000);
+    end
+    pause(pause_time - 0.05);
 end
 
 disp('--------------------------------------------------');
