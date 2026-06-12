@@ -10,9 +10,10 @@
 
 clear; clc; close all;
 
-%% 1. PHYSICAL PARAMETERS (CubeSat + Reaction Wheel)
+%% 1. PHYSICAL PARAMETERS & DELAY (CubeSat + Reaction Wheel)
 J  = 0.000634;     % Spacecraft moment of inertia [kg*m^2]
 Jw = 4.607e-5;     % Reaction wheel moment of inertia [kg*m^2]
+tau_delay = 2.3;   % Measured command transmission delay [s]
 
 % Actuator torque limits
 tau_max = 0.002;   % Maximum control torque [N*m]
@@ -37,68 +38,60 @@ fprintf('Reference angle set to: %.2f deg (%.4f rad)\n\n', theta_ref_deg, theta_
 
 %% 3. CONTROLLER DESIGN
 
-% --- 3.1. Manual PD Controller ---
-% Gains from the initial parameters
-Kp_manual = 0.02;
-Kd_manual = 0.01;
-% Because the dynamic equation is d(omega)/dt = -tau/J, for stability
-% the control torque is: tau = Kp*(theta - theta_ref) + Kd*omega.
-% In matrix form: u = -K_manual * [theta - theta_ref; omega], where:
-K_manual = [-Kp_manual, -Kd_manual];
+% --- 3.1. Analytical PID Controller ---
+% Target closed-loop bandwidth lambda (must be > tau/3 to keep Kd > 0)
+lambda = 1.0; 
+Kp = 3 * J * (lambda^2);
+Kd = J * (3 * lambda - tau_delay);
+Ki = J * (lambda^3);
 
 % --- 3.2. LQR (Linear Quadratic Regulator) Controller ---
-% We define the state-space model for the controllable 2D subspace: x_sub = [e_theta; omega]
+% State-space model updated with delay:
 % e_theta = theta - theta_ref
-% d(e_theta)/dt = omega
-% d(omega)/dt = -tau/J
-%
 % dx_sub/dt = A*x_sub + B*u
 A = [0, 1;
-     0, 0];
+     0, -tau_delay];
 B = [0;
      -1/J];
 
 % Weighting matrices Q and R
-% We weight the attitude error more than the angular rate to ensure a fast, precise response.
 Q = [50, 0;    % Penalty for attitude error (e_theta)
      0,  5];   % Penalty for body angular rate (omega)
 R = 1;         % Penalty for control effort (u = tau)
 
-% Analytical LQR gains calculation (using the exact Riccati Equation solution 
-% for the 2D subspace). This ensures robust execution without requiring the 
-% MATLAB Control System Toolbox.
-%
-% Analytical solution for: A = [0, 1; 0, 0], B = [0; -1/J], Q = diag([q1, q2]), R
+% Analytical LQR gains calculation for the system with time delay
 q1 = Q(1,1);
 q2 = Q(2,2);
 K1_lqr = -sqrt(q1/R);
-K2_lqr = -sqrt((2*J*sqrt(q1*R) + q2)/R);
+K2_lqr = J*tau_delay - sqrt(J^2*tau_delay^2 + (2*J*sqrt(q1*R) + q2)/R);
 K_lqr = [K1_lqr, K2_lqr];
 
-fprintf('Optimal LQR gains (analytical solution):\n');
+fprintf('Optimal LQR gains (analytical solution with tau = %.2f s):\n', tau_delay);
 fprintf('  K_theta = %.6f (equivalent Kp_lqr)\n', -K_lqr(1));
 fprintf('  K_omega = %.6f (equivalent Kd_lqr)\n\n', -K_lqr(2));
 
 %% 4. RUN SIMULATIONS (Duration: 10 seconds)
 tspan = [0 10]; % 10-second simulation span
 
-% --- Simulation 1: Manual PD ---
-fprintf('Running Manual PD simulation...\n');
-[t_pd, x_pd] = ode45(@(t, x) spacecraft_dynamics(t, x, J, Jw, K_manual, theta_ref, tau_max), tspan, x0);
+% --- Simulation 1: PID ---
+fprintf('Running PID simulation...\n');
+x0_pid = [theta0; omega0; omega_w0; 0]; % theta, omega, omega_w, int_error
+[t_pd, x_pd] = ode45(@(t, x) pid_dynamics(t, x, J, Jw, Kp, Ki, Kd, theta_ref, tau_max, tau_delay), tspan, x0_pid);
 
 % --- Simulation 2: LQR ---
 fprintf('Running Optimal LQR simulation...\n');
-[t_lqr, x_lqr] = ode45(@(t, x) spacecraft_dynamics(t, x, J, Jw, K_lqr, theta_ref, tau_max), tspan, x0);
+[t_lqr, x_lqr] = ode45(@(t, x) spacecraft_dynamics_lqr(t, x, J, Jw, K_lqr, theta_ref, tau_max, tau_delay), tspan, x0);
 
 %% 5. DATA EXTRACTION AND UNIT CONVERSION
-% Extract Manual PD states
+% Extract PID states
 theta_pd   = rad2deg(x_pd(:,1));
 omega_pd   = rad2deg(x_pd(:,2));
 omega_w_pd = x_pd(:,3);
 
-tau_pd = zeros(length(t_pd), 1);
+pwm_pd = zeros(length(t_pd), 1);
 for i = 1:length(t_pd)
-    tau_pd(i) = control_law(x_pd(i, 1:2)', K_manual, theta_ref, tau_max);
+    tau_val = control_law_pid(x_pd(i, :)', Kp, Ki, Kd, theta_ref, tau_max);
+    pwm_pd(i) = (tau_val / tau_max) * 1023;
 end
 
 % Extract Optimal LQR states
@@ -106,15 +99,16 @@ theta_lqr   = rad2deg(x_lqr(:,1));
 omega_lqr   = rad2deg(x_lqr(:,2));
 omega_w_lqr = x_lqr(:,3);
 
-tau_lqr = zeros(length(t_lqr), 1);
+pwm_lqr = zeros(length(t_lqr), 1);
 for i = 1:length(t_lqr)
-    tau_lqr(i) = control_law(x_lqr(i, 1:2)', K_lqr, theta_ref, tau_max);
+    tau_val = control_law(x_lqr(i, 1:2)', K_lqr, theta_ref, tau_max);
+    pwm_lqr(i) = (tau_val / tau_max) * 1023;
 end
 
 %% 6. SAVE SIMULATION DATA FOR EXPORT
-save('comparison_data.mat', 't_pd', 'theta_pd', 'omega_pd', 'omega_w_pd', 'tau_pd', ...
-                            't_lqr', 'theta_lqr', 'omega_lqr', 'omega_w_lqr', 'tau_lqr', ...
-                            'J', 'Jw', 'K_manual', 'K_lqr', 'theta_ref_deg');
+save('comparison_data.mat', 't_pd', 'theta_pd', 'omega_pd', 'omega_w_pd', 'pwm_pd', ...
+                            't_lqr', 'theta_lqr', 'omega_lqr', 'omega_w_lqr', 'pwm_lqr', ...
+                            'J', 'Jw', 'Kp', 'Ki', 'Kd', 'K_lqr', 'theta_ref_deg');
 fprintf('Simulation data successfully exported to "comparison_data.mat".\n\n');
 
 %% 7. FORMAT 1: VERTICAL TIME-ALIGNED VISUALIZATION (4x1)
@@ -138,7 +132,7 @@ yline(theta_ref_deg, 'w:', 'LineWidth', 1.5); % Reference line
 grid on;
 ylabel('\theta [deg]', 'Color', 'w');
 title('Attitude Angle Comparison (\theta)', 'Color', 'w', 'FontSize', 12);
-legend('Manual PD', 'Optimal LQR', 'Reference', 'TextColor', 'w', 'Location', 'southeast', 'Color', 'none', 'EdgeColor', 'none');
+legend('PID Controller', 'Optimal LQR', 'Reference', 'TextColor', 'w', 'Location', 'southeast', 'Color', 'none', 'EdgeColor', 'none');
 
 % --- Subplot 2: Spacecraft Body Rate (omega) ---
 ax2 = subplot(4, 1, 2);
@@ -147,18 +141,18 @@ plot(t_lqr, omega_lqr, 'LineWidth', 2, 'Color', magenta, 'LineStyle', '--');
 grid on;
 ylabel('\omega [deg/s]', 'Color', 'w');
 title('Spacecraft Body Angular Rate (\omega)', 'Color', 'w', 'FontSize', 12);
-legend('Manual PD', 'Optimal LQR', 'TextColor', 'w', 'Location', 'northeast', 'Color', 'none', 'EdgeColor', 'none');
+legend('PID Controller', 'Optimal LQR', 'TextColor', 'w', 'Location', 'northeast', 'Color', 'none', 'EdgeColor', 'none');
 
-% --- Subplot 3: Control Torque (tau) ---
+% --- Subplot 3: Motor PWM Command ---
 ax3 = subplot(4, 1, 3);
-plot(t_pd, tau_pd, 'LineWidth', 2, 'Color', darkyellow); hold on;
-plot(t_lqr, tau_lqr, 'LineWidth', 2, 'Color', brightyellow, 'LineStyle', '--');
-yline(tau_max, 'r--', 'LineWidth', 1.2);  % Upper saturation boundary
-yline(-tau_max, 'r--', 'LineWidth', 1.2); % Lower saturation boundary
+plot(t_pd, pwm_pd, 'LineWidth', 2, 'Color', darkyellow); hold on;
+plot(t_lqr, pwm_lqr, 'LineWidth', 2, 'Color', brightyellow, 'LineStyle', '--');
+yline(1023, 'r--', 'LineWidth', 1.2);  % Upper limit
+yline(-1023, 'r--', 'LineWidth', 1.2); % Lower limit
 grid on;
-ylabel('\tau [N m]', 'Color', 'w');
-title('Control Torque (\tau)', 'Color', 'w', 'FontSize', 12);
-legend('Manual PD', 'Optimal LQR', 'Saturation Limit', 'TextColor', 'w', 'Location', 'northeast', 'Color', 'none', 'EdgeColor', 'none');
+ylabel('Motor PWM [Units]', 'Color', 'w');
+title('Motor Speed Command (PWM)', 'Color', 'w', 'FontSize', 12);
+legend('PID Controller', 'Optimal LQR', 'PWM Limit', 'TextColor', 'w', 'Location', 'northeast', 'Color', 'none', 'EdgeColor', 'none');
 
 % --- Subplot 4: Reaction Wheel Speed (omega_w) ---
 ax4 = subplot(4, 1, 4);
@@ -168,7 +162,7 @@ grid on;
 ylabel('\omega_w [rad/s]', 'Color', 'w');
 xlabel('Time [s]', 'Color', 'w');
 title('Reaction Wheel Angular Velocity (\omega_w)', 'Color', 'w', 'FontSize', 12);
-legend('Manual PD', 'Optimal LQR', 'TextColor', 'w', 'Location', 'northeast', 'Color', 'none', 'EdgeColor', 'none');
+legend('PID Controller', 'Optimal LQR', 'TextColor', 'w', 'Location', 'northeast', 'Color', 'none', 'EdgeColor', 'none');
 
 % Style configuration for modern axes look (Dark theme)
 axs1 = [ax1, ax2, ax3, ax4];
@@ -200,7 +194,7 @@ grid on;
 ylabel('\theta [deg]', 'Color', 'w');
 xlabel('Time [s]', 'Color', 'w');
 title('Attitude Angle (\theta)', 'Color', 'w', 'FontSize', 12);
-legend('Manual PD', 'Optimal LQR', 'Reference', 'TextColor', 'w', 'Location', 'southeast', 'Color', 'none', 'EdgeColor', 'none');
+legend('PID Controller', 'Optimal LQR', 'Reference', 'TextColor', 'w', 'Location', 'southeast', 'Color', 'none', 'EdgeColor', 'none');
 
 % --- Subplot 2: Spacecraft Body Rate (Top Right) ---
 ax_g2 = subplot(2, 2, 2);
@@ -210,19 +204,19 @@ grid on;
 ylabel('\omega [deg/s]', 'Color', 'w');
 xlabel('Time [s]', 'Color', 'w');
 title('Spacecraft Body Angular Rate (\omega)', 'Color', 'w', 'FontSize', 12);
-legend('Manual PD', 'Optimal LQR', 'TextColor', 'w', 'Location', 'northeast', 'Color', 'none', 'EdgeColor', 'none');
+legend('PID Controller', 'Optimal LQR', 'TextColor', 'w', 'Location', 'northeast', 'Color', 'none', 'EdgeColor', 'none');
 
-% --- Subplot 3: Control Torque (Bottom Left) ---
+% --- Subplot 3: Commanded Motor PWM (Bottom Left) ---
 ax_g3 = subplot(2, 2, 3);
-plot(t_pd, tau_pd, 'LineWidth', 2, 'Color', darkyellow); hold on;
-plot(t_lqr, tau_lqr, 'LineWidth', 2, 'Color', brightyellow, 'LineStyle', '--');
-yline(tau_max, 'r--', 'LineWidth', 1.2);
-yline(-tau_max, 'r--', 'LineWidth', 1.2);
+plot(t_pd, pwm_pd, 'LineWidth', 2, 'Color', darkyellow); hold on;
+plot(t_lqr, pwm_lqr, 'LineWidth', 2, 'Color', brightyellow, 'LineStyle', '--');
+yline(1023, 'r--', 'LineWidth', 1.2);
+yline(-1023, 'r--', 'LineWidth', 1.2);
 grid on;
-ylabel('\tau [N m]', 'Color', 'w');
+ylabel('Motor PWM [Units]', 'Color', 'w');
 xlabel('Time [s]', 'Color', 'w');
-title('Control Torque (\tau)', 'Color', 'w', 'FontSize', 12);
-legend('Manual PD', 'Optimal LQR', 'Saturation Limit', 'TextColor', 'w', 'Location', 'northeast', 'Color', 'none', 'EdgeColor', 'none');
+title('Motor Speed Command (PWM)', 'Color', 'w', 'FontSize', 12);
+legend('PID Controller', 'Optimal LQR', 'PWM Limit', 'TextColor', 'w', 'Location', 'northeast', 'Color', 'none', 'EdgeColor', 'none');
 
 % --- Subplot 4: Reaction Wheel Speed (Bottom Right) ---
 ax_g4 = subplot(2, 2, 4);
@@ -232,7 +226,7 @@ grid on;
 ylabel('\omega_w [rad/s]', 'Color', 'w');
 xlabel('Time [s]', 'Color', 'w');
 title('Reaction Wheel Angular Velocity (\omega_w)', 'Color', 'w', 'FontSize', 12);
-legend('Manual PD', 'Optimal LQR', 'TextColor', 'w', 'Location', 'northeast', 'Color', 'none', 'EdgeColor', 'none');
+legend('PID Controller', 'Optimal LQR', 'TextColor', 'w', 'Location', 'northeast', 'Color', 'none', 'EdgeColor', 'none');
 
 % Style configuration for the 2x2 grid
 axs_grid = [ax_g1, ax_g2, ax_g3, ax_g4];
@@ -256,7 +250,7 @@ fprintf('Simulation completed successfully!\n');
 
 %% ==================== AUXILIARY FUNCTIONS ====================
 
-% Control law formulation with saturation limits
+% Control law formulation with saturation limits for LQR
 function tau = control_law(x_sub, K, theta_ref, tau_max)
     % e_theta = theta - theta_ref
     err = wrapToPi(x_sub(1) - theta_ref);
@@ -269,19 +263,46 @@ function tau = control_law(x_sub, K, theta_ref, tau_max)
     tau = max(min(tau_cmd, tau_max), -tau_max);
 end
 
-% Non-linear differential equations representing satellite + reaction wheel dynamics
-function dx = spacecraft_dynamics(~, x, J, Jw, K, theta_ref, tau_max)
+% Control law formulation with saturation limits for PID
+function tau = control_law_pid(x_pid, Kp, Ki, Kd, theta_ref, tau_max)
+    theta = x_pid(1);
+    omega = x_pid(2);
+    int_err = x_pid(4);
+    
+    err = wrapToPi(theta - theta_ref);
+    tau_cmd = Kp * err + Ki * int_err + Kd * omega;
+    
+    tau = max(min(tau_cmd, tau_max), -tau_max);
+end
+
+% Non-linear differential equations representing satellite + reaction wheel dynamics for LQR
+function dx = spacecraft_dynamics_lqr(~, x, J, Jw, K, theta_ref, tau_max, tau_delay)
     theta   = x(1);
     omega   = x(2);
     omega_w = x(3);
     
-    % Calculate control torque based on current attitude error and angular velocity
     tau = control_law([theta; omega], K, theta_ref, tau_max);
     
-    % Dynamics equations
     dtheta   = omega;
-    domega   = -tau / J;    % Torque applied to spacecraft body
-    domega_w =  tau / Jw;   % Equal and opposite reaction torque on the wheel
+    domega   = -tau / J - tau_delay * omega;
+    domega_w =  tau / Jw - tau_delay * omega_w;
     
     dx = [dtheta; domega; domega_w];
+end
+
+% Non-linear differential equations representing satellite + reaction wheel dynamics for PID
+function dx = pid_dynamics(~, x, J, Jw, Kp, Ki, Kd, theta_ref, tau_max, tau_delay)
+    theta   = x(1);
+    omega   = x(2);
+    omega_w = x(3);
+    int_err = x(4);
+    
+    tau = control_law_pid(x, Kp, Ki, Kd, theta_ref, tau_max);
+    
+    dtheta   = omega;
+    domega   = -tau / J - tau_delay * omega;
+    domega_w =  tau / Jw - tau_delay * omega_w;
+    dint_err = wrapToPi(theta - theta_ref);
+    
+    dx = [dtheta; domega; domega_w; dint_err];
 end

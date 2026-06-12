@@ -12,6 +12,7 @@ theta   = simOut.theta_out(1:length(t), 1);
 omega   = simOut.omega_out(1:length(t), 1);
 omega_w = simOut.omega_w_out(1:length(t), 1);
 tau     = simOut.tau_out(1:length(t), 1);
+pwm     = (tau / tau_max) * 1023;
 
 % Constants
 theta_deg = rad2deg(theta);
@@ -27,7 +28,7 @@ pastelgreen    = [0.55 0.85 0.60];
 lightred       = [0.95 0.35 0.35];
 
 hFig = figure('Color','k', ...
-       'Name','Real-Time LQR Control Sequence (Telemetry Simulation)', ...
+       'Name','Real-Time Control Sequence (Telemetry Simulation)', ...
        'Position',[100 50 1100 900]);
 
 % 1. Attitude Angle subplot
@@ -53,15 +54,17 @@ yline(omega_th_low_deg, '--', 'Color', [0.7 0.7 0.7], 'LineWidth', 1.2);
 yline(-omega_th_low_deg, '--', 'Color', [0.7 0.7 0.7], 'LineWidth', 1.2);
 line_omega = animatedline('Color', midnightpurple, 'LineWidth', 2);
 
-% 3. Control Torque subplot
+% 3. Commanded Motor PWM subplot
 ax3 = subplot(4,1,3);
 set(ax3, 'Color', 'k', 'XColor', 'w', 'YColor', 'w', 'GridColor', [0.5 0.5 0.5]);
-ylabel('\tau [Nm]', 'Color', 'w');
-title('Reaction Wheel Motor Torque', 'Color', 'w');
+ylabel('Motor PWM [Units]', 'Color', 'w');
+title('Reaction Wheel Motor Command (PWM)', 'Color', 'w');
 grid on; hold on;
 xlim([0 t_stop]);
-ylim([-tau_max*1.5, tau_max*1.5]);
-line_tau = animatedline('Color', darkyellow, 'LineWidth', 2);
+ylim([-1200, 1200]);
+yline(1023, 'r--', 'LineWidth', 1.2);
+yline(-1023, 'r--', 'LineWidth', 1.2);
+line_pwm = animatedline('Color', darkyellow, 'LineWidth', 2);
 
 % 4. Wheel Speed subplot
 ax4 = subplot(4,1,4);
@@ -100,7 +103,7 @@ while current_t <= max_t
         % Add points
         addpoints(line_theta, t(last_idx:idx), theta_deg(last_idx:idx));
         addpoints(line_omega, t(last_idx:idx), omega_deg(last_idx:idx));
-        addpoints(line_tau, t(last_idx:idx), tau(last_idx:idx));
+        addpoints(line_pwm, t(last_idx:idx), pwm(last_idx:idx));
         addpoints(line_omega_w, t(last_idx:idx), omega_w(last_idx:idx));
         
         % Update Status Label matching the threshold logic
@@ -127,7 +130,7 @@ end
 if isvalid(line_theta)
     addpoints(line_theta, t(last_idx:end), theta_deg(last_idx:end));
     addpoints(line_omega, t(last_idx:end), omega_deg(last_idx:end));
-    addpoints(line_tau, t(last_idx:end), tau(last_idx:end));
+    addpoints(line_pwm, t(last_idx:end), pwm(last_idx:end));
     addpoints(line_omega_w, t(last_idx:end), omega_w(last_idx:end));
     
     % Final state check

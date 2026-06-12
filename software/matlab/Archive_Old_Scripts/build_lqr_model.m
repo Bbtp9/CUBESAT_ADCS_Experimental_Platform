@@ -65,12 +65,12 @@ set_param([dynPath '/Gain_1_Jw'], 'Gain', '1/Jw', 'Position', [150, 160, 200, 19
 add_block('simulink/Math Operations/Gain', [dynPath '/Gain_1_J']);
 set_param([dynPath '/Gain_1_J'], 'Gain', '-1/J', 'Position', [150, 90, 200, 120]);
 
-% Integrators
-add_block('simulink/Continuous/Integrator', [dynPath '/Int_Omega_w']);
-set_param([dynPath '/Int_Omega_w'], 'InitialCondition', 'omega_w0', 'Position', [280, 160, 310, 190]);
+% State-Space Delay Blocks (equivalent to 1/(s+tau) with initial conditions)
+add_block('simulink/Continuous/State-Space', [dynPath '/Int_Omega_w']);
+set_param([dynPath '/Int_Omega_w'], 'A', '-tau', 'B', '1', 'C', '1', 'D', '0', 'X0', 'omega_w0', 'Position', [280, 160, 310, 190]);
 
-add_block('simulink/Continuous/Integrator', [dynPath '/Int_Omega']);
-set_param([dynPath '/Int_Omega'], 'InitialCondition', 'omega0', 'Position', [280, 90, 310, 120]);
+add_block('simulink/Continuous/State-Space', [dynPath '/Int_Omega']);
+set_param([dynPath '/Int_Omega'], 'A', '-tau', 'B', '1', 'C', '1', 'D', '0', 'X0', 'omega0', 'Position', [280, 90, 310, 120]);
 
 add_block('simulink/Continuous/Integrator', [dynPath '/Int_Theta']);
 set_param([dynPath '/Int_Theta'], 'InitialCondition', 'theta0', 'Position', [400, 30, 430, 60]);

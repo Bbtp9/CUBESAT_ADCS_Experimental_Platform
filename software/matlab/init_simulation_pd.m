@@ -24,14 +24,24 @@ end
 
 
 %% 2. Set Physical and Controller Parameters
-% Cubesat and Wheel Inertias
-J  = 0.000634;   % spacecraft inertia [kg*m^2]
-Jw = 4.607e-5;   % reaction wheel inertia [kg*m^2]
+% Physical parameters & Measured Time Delay
+J   = 0.000634;     % spacecraft inertia [kg*m^2]
+Jw  = 4.607e-5;     % reaction wheel inertia [kg*m^2]
+tau = 2.3;          % measured command transmission delay [s]
 
-% Controller Gains
-Kp = 0.002;             % proportional pointing gain
-Kd = 0.01;              % derivative pointing gain
+% Analytical PID Controller Design (Pole Placement)
+% Target closed-loop bandwidth lambda (must be > tau/3 to keep Kd > 0)
+lambda = 1.0; 
+Kp = 3 * J * (lambda^2);
+Kd = J * (3 * lambda - tau);
+Ki = J * (lambda^3);
+
 Kd_detumble = 0.003;    % derivative detumbling gain
+
+fprintf('\n[*] Calculated Analytical PID Gains (for delay tau = %.2f s, lambda = %.2f rad/s):\n', tau, lambda);
+fprintf('    -> Proportional Gain Kp = %.6f\n', Kp);
+fprintf('    -> Integral Gain Ki = %.6f\n', Ki);
+fprintf('    -> Derivative Gain Kd = %.6f\n\n', Kd);
 
 % Constraints & Thresholds
 tau_max  = 0.002;                % max torque [Nm]

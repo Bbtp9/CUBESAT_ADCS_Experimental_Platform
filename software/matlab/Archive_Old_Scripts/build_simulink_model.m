@@ -67,12 +67,12 @@ set_param([dynPath '/Gain_1_Jw'], 'Gain', '1/Jw', 'Position', [150, 160, 200, 19
 add_block('simulink/Math Operations/Gain', [dynPath '/Gain_1_J']);
 set_param([dynPath '/Gain_1_J'], 'Gain', '-1/J', 'Position', [150, 90, 200, 120]);
 
-% Integrators
-add_block('simulink/Continuous/Integrator', [dynPath '/Int_Omega_w']);
-set_param([dynPath '/Int_Omega_w'], 'InitialCondition', 'omega_w0', 'Position', [280, 160, 310, 190]);
+% State-Space Delay Blocks (equivalent to 1/(s+tau) with initial conditions)
+add_block('simulink/Continuous/State-Space', [dynPath '/Int_Omega_w']);
+set_param([dynPath '/Int_Omega_w'], 'A', '-tau', 'B', '1', 'C', '1', 'D', '0', 'X0', 'omega_w0', 'Position', [280, 160, 310, 190]);
 
-add_block('simulink/Continuous/Integrator', [dynPath '/Int_Omega']);
-set_param([dynPath '/Int_Omega'], 'InitialCondition', 'omega0', 'Position', [280, 90, 310, 120]);
+add_block('simulink/Continuous/State-Space', [dynPath '/Int_Omega']);
+set_param([dynPath '/Int_Omega'], 'A', '-tau', 'B', '1', 'C', '1', 'D', '0', 'X0', 'omega0', 'Position', [280, 90, 310, 120]);
 
 add_block('simulink/Continuous/Integrator', [dynPath '/Int_Theta']);
 set_param([dynPath '/Int_Theta'], 'InitialCondition', 'theta0', 'Position', [400, 30, 430, 60]);
@@ -107,13 +107,24 @@ add_block('simulink/Sinks/Out1', [ctrlPath '/Tau'], 'Position', [900, 150, 930, 
 add_block('simulink/Math Operations/Sum', [ctrlPath '/Sum_Error']);
 set_param([ctrlPath '/Sum_Error'], 'Inputs', '+-', 'Position', [120, 65, 140, 85]);
 
-% Pointing Controller (Kp * error - Kd * omega)
+% Pointing Controller (PID with wrapToPi error wrapping)
+add_block('simulink/User-Defined Functions/MATLAB Fcn', [ctrlPath '/Wrap_To_Pi']);
+set_param([ctrlPath '/Wrap_To_Pi'], 'MATLABFcn', 'wrapToPi', 'Position', [170, 60, 210, 90]);
+
 add_block('simulink/Math Operations/Gain', [ctrlPath '/Kp_Gain']);
-set_param([ctrlPath '/Kp_Gain'], 'Gain', 'Kp', 'Position', [220, 60, 260, 90]);
+set_param([ctrlPath '/Kp_Gain'], 'Gain', 'Kp', 'Position', [240, 60, 280, 90]);
+
+add_block('simulink/Continuous/Integrator', [ctrlPath '/Int_Error']);
+set_param([ctrlPath '/Int_Error'], 'InitialCondition', '0', 'Position', [240, 180, 270, 210]);
+
+add_block('simulink/Math Operations/Gain', [ctrlPath '/Ki_Gain']);
+set_param([ctrlPath '/Ki_Gain'], 'Gain', 'Ki', 'Position', [300, 180, 340, 210]);
+
 add_block('simulink/Math Operations/Gain', [ctrlPath '/Kd_Gain']);
-set_param([ctrlPath '/Kd_Gain'], 'Gain', 'Kd', 'Position', [220, 120, 260, 150]);
-add_block('simulink/Math Operations/Sum', [ctrlPath '/Sum_PD']);
-set_param([ctrlPath '/Sum_PD'], 'Inputs', '+-', 'Position', [350, 95, 370, 115]);
+set_param([ctrlPath '/Kd_Gain'], 'Gain', 'Kd', 'Position', [240, 120, 280, 150]);
+
+add_block('simulink/Math Operations/Sum', [ctrlPath '/Sum_PID']);
+set_param([ctrlPath '/Sum_PID'], 'Inputs', '++-', 'Position', [380, 95, 400, 115]);
 
 % Detumbling Controller (-Kd_detumble * omega)
 add_block('simulink/Math Operations/Gain', [ctrlPath '/Kd_detumble']);
@@ -145,15 +156,19 @@ set_param([ctrlPath '/Torque_Sat'], 'UpperLimit', 'tau_max', 'LowerLimit', '-tau
 % Routing inside Controller
 add_line(ctrlPath, 'Theta_ref/1', 'Sum_Error/1', 'autorouting', 'on');
 add_line(ctrlPath, 'Theta/1', 'Sum_Error/2', 'autorouting', 'on');
-add_line(ctrlPath, 'Sum_Error/1', 'Kp_Gain/1', 'autorouting', 'on');
+add_line(ctrlPath, 'Sum_Error/1', 'Wrap_To_Pi/1', 'autorouting', 'on');
+add_line(ctrlPath, 'Wrap_To_Pi/1', 'Kp_Gain/1', 'autorouting', 'on');
+add_line(ctrlPath, 'Wrap_To_Pi/1', 'Int_Error/1', 'autorouting', 'on');
+add_line(ctrlPath, 'Int_Error/1', 'Ki_Gain/1', 'autorouting', 'on');
 
 % Feed omega to pointing derivative, detumbling, and absolute
 add_line(ctrlPath, 'Omega/1', 'Kd_Gain/1', 'autorouting', 'on');
 add_line(ctrlPath, 'Omega/1', 'Kd_detumble/1', 'autorouting', 'on');
 add_line(ctrlPath, 'Omega/1', 'Abs_Omega/1', 'autorouting', 'on');
 
-add_line(ctrlPath, 'Kp_Gain/1', 'Sum_PD/1', 'autorouting', 'on');
-add_line(ctrlPath, 'Kd_Gain/1', 'Sum_PD/2', 'autorouting', 'on');
+add_line(ctrlPath, 'Kp_Gain/1', 'Sum_PID/1', 'autorouting', 'on');
+add_line(ctrlPath, 'Ki_Gain/1', 'Sum_PID/2', 'autorouting', 'on');
+add_line(ctrlPath, 'Kd_Gain/1', 'Sum_PID/3', 'autorouting', 'on');
 
 % Gain -1 to convert Satellite Required Torque to Motor Requested Torque
 add_block('simulink/Math Operations/Gain', [ctrlPath '/Motor_Inversion']);
@@ -164,7 +179,7 @@ set_param([ctrlPath '/Motor_Inversion'], 'Gain', '-1', 'Position', [630, 155, 67
 add_line(ctrlPath, 'Kd_detumble/1', 'Mode_Switch/1', 'autorouting', 'on'); % Top pin (True, Detumbling)
 add_line(ctrlPath, 'Abs_Omega/1', 'Hysteresis_Relay/1', 'autorouting', 'on'); % Abs_Omega into Relay
 add_line(ctrlPath, 'Hysteresis_Relay/1', 'Mode_Switch/2', 'autorouting', 'on'); % Relay into Switch Control
-add_line(ctrlPath, 'Sum_PD/1', 'Mode_Switch/3', 'autorouting', 'on'); % Bottom pin (False, Pointing)
+add_line(ctrlPath, 'Sum_PID/1', 'Mode_Switch/3', 'autorouting', 'on'); % Bottom pin (False, Pointing)
 
 add_line(ctrlPath, 'Mode_Switch/1', 'Motor_Inversion/1', 'autorouting', 'on');
 add_line(ctrlPath, 'Motor_Inversion/1', 'Torque_Sat/1', 'autorouting', 'on');

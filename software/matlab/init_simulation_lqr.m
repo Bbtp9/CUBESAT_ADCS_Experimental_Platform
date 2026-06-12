@@ -19,9 +19,10 @@ while isempty(theta_ref_deg) || ~isnumeric(theta_ref_deg)
     theta_ref_deg = input('Invalid input. Enter a number [deg]: ');
 end
 
-%% 2. Set Physical Parameters
+%% 2. Set Physical Parameters & Time Delay
 J  = 0.000634;   % spacecraft inertia [kg*m^2]
 Jw = 4.607e-5;   % reaction wheel inertia [kg*m^2]
+tau = 2.3;       % measured command transmission delay [s]
 
 tau_max  = 0.002;                % max torque [Nm]
 omega_th_high = deg2rad(10000);  % artificially huge so it never switches BACK to detumbling
@@ -40,10 +41,11 @@ disp('[*] Computing Optimal LQR Gains...');
 
 %% 3. LQR Control Synthesis
 
-% --- POINTING LQR ---
-% State: x = [theta, omega]'
-% Dynamics: d(omega)/dt = (1/J) * tau_sat
-A = [0 1; 0 0];
+% --- POINTING LQR (Updated with time delay tau) ---
+% State: x = [theta_error, omega]'
+% Dynamics: d(theta_error)/dt = omega
+%           d(omega)/dt = -tau*omega + (1/J)*tau_sat
+A = [0 1; 0 -tau];
 B = [0; 1/J];
 
 % Q and R weightings (Tuning matrices)
@@ -54,10 +56,10 @@ R = 5000;
 Kp_lqr = lqr(A, B, Q, R); % Returns row vector [k1, k2]
 fprintf('    -> Pointing LQR Matrix Gain Kp: [%.4f, %.4f]\n', Kp_lqr(1), Kp_lqr(2));
 
-% --- DETUMBLING LQR ---
+% --- DETUMBLING LQR (Updated with time delay tau) ---
 % State: x = omega
-% Dynamics: d(omega)/dt = (1/J) * tau_sat
-A_d = 0;
+% Dynamics: d(omega)/dt = -tau*omega + (1/J)*tau_sat
+A_d = -tau;
 B_d = 1/J;
 Q_d = 100;
 R_d = 5000;
@@ -65,10 +67,12 @@ R_d = 5000;
 Kd_detumble = lqr(A_d, B_d, Q_d, R_d);
 fprintf('    -> Detumbling LQR Scalar Gain Kd: %.4f\n', Kd_detumble);
 
-%% 4. Build Simulink Model
+% Add the simulink folder to the MATLAB search path
+addpath(fullfile(fileparts(mfilename('fullpath')), '..', 'simulink'));
+
+%% 4. Load Simulink Model
 disp(' ');
-disp('[*] Constructing LQR Simulink Architecture...');
-build_lqr_model; 
+disp('[*] Parameters Loaded. Using the existing Cubesat_Control_LQR.slx model...');
 
 %% 5. Run the Simulation
 disp('[*] Simulating Cubesat_Control_LQR.slx ...');
