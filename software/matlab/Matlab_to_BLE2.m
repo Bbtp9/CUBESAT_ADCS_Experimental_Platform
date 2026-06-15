@@ -68,7 +68,7 @@ Jw = 4.607e-5;     % Reaction wheel inertia [kg*m^2]
 if evalin('base', "exist('tau_max', 'var')")
     tau_max = evalin('base', 'tau_max');
 else
-    tau_max = 0.2;   % Maximum control torque [Nm]
+    tau_max = 0.002;   % Maximum control torque [Nm]
 end
 
 if evalin('base', "exist('Kd_detumble', 'var')")
