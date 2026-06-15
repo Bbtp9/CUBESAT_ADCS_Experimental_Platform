@@ -74,7 +74,7 @@ end
 if evalin('base', "exist('Kd_detumble', 'var')")
     Kd_detumble = evalin('base', 'Kd_detumble');
 else
-    Kd_detumble = 0.03;  % Detumbling Gain
+    Kd_detumble = 0.0003;  % Detumbling Gain
 end
 
 % Initialize pointing gains depending on selected controller
@@ -244,12 +244,12 @@ for k = 1:max_detumble_iterations
     pause(pause_time - 0.08);
 end
 
-% Ensure motor is stopped after detumbling
-% write(m, uint8("0"));
-% disp('[*] Motor stopped. Measuring settled heading...');
-% pause(1.5);
+% Ensure motor is stopped immediately after detumbling
+write(m, "0");
+disp('[*] Motor stopped. Waiting for CubeSat to settle...');
+pause(2.0);
 
-% Read settled heading
+% Read settled heading from sensor
 try
     raw = read(c);
     data = sscanf(char(raw), '%f');
@@ -263,17 +263,13 @@ catch
 end
 
 fprintf('\n==================================================\n');
-fprintf('   [+] DETUMBLING COMPLETE!\n');
+fprintf('   [+] DETUMBLING COMPLETE & SETTLED!\n');
 fprintf('   CubeSat settled at:\n');
-fprintf('   -> Current Heading: %.2f deg\n', settled_heading);
-fprintf('   -> Integrated Theta: %.2f deg\n', rad2deg(thetaZ));
+fprintf('   -> Current Sensor Heading: %.2f deg\n', settled_heading);
 fprintf('==================================================\n\n');
 
-pause(5)
-
-write(m, "0");
-disp('[*] Motor stopped. Measuring settled heading...');
-pause(1.5);
+% Initialize attitude angle for pointing to the absolute sensor heading
+thetaZ = deg2rad(settled_heading);
 
 % ==================================================
 %   INTER-PHASE USER INPUT
