@@ -105,34 +105,36 @@ else
 end
 
 fprintf('\n[+] Selected Pointing Mode: %s\n', ctrl_name);
-fprintf('    Control Gain Matrix K: [%.6f, %.6f]\n', K_ctrl(1), K_ctrl(2));
+if ctrl_choice == 1
+    fprintf('    PID Gains: Kp = %.6f, Ki = %.6f, Kd = %.6f\n', Kp, Ki, Kd);
+else
+    fprintf('    Control Gain Matrix K: [%.6f, %.6f]\n', K_ctrl(1), K_ctrl(2));
+end
 fprintf('    Detumbling Rate Gain: %.4f\n', Kd_detumble);
 disp('Press ENTER to start Phase 1 (Detumbling)...');
 input('');
 
-%% 3. Setup Premium Dark-Theme Live Visualizer
+%% 3. Setup Dark-Theme Live Visualizer
 fig = figure('Color', 'k', 'Name', ['Real-Time CubeSat Mission - ' ctrl_name], 'Position', [100, 100, 1000, 700]);
 
-% Subplot 1: Attitude Angle (Theta)
+% Subplot 1: Spacecraft State (Velocity in Phase 1, Angle in Phase 2)
 ax1 = subplot(2, 1, 1);
 h_theta = animatedline('Color', [0.00 0.80 0.80], 'LineWidth', 2.5); % Turquoise
-h_ref   = yline(0, 'w:', 'LineWidth', 1.5);                         % Hidden reference line initially
+h_ref   = yline(0, 'w:', 'LineWidth', 1.5);                         % Reference line
 set(h_ref, 'Visible', 'off');
 grid on;
-ylabel('\theta_z [deg]', 'Color', 'w');
-title(['Real-Time Attitude Angle vs Target Reference (' ctrl_name ')'], 'Color', 'w', 'FontSize', 12);
-legend('Live Angle (\theta_z)', 'Target Reference (Not Set)', 'TextColor', 'w', 'Location', 'southeast', 'Color', 'none', 'EdgeColor', 'none');
+ylabel('Angular Velocity [deg/s]', 'Color', 'w');
+title('Real-Time Spacecraft Angular Velocity (Phase 1: Detumbling)', 'Color', 'w', 'FontSize', 12);
+legend('Body Rate (\omega_z)', 'TextColor', 'w', 'Location', 'southeast', 'Color', 'none', 'EdgeColor', 'none');
 
-% Subplot 2: Commanded Motor PWM
+% Subplot 2: Estimated Reaction Wheel Velocity
 ax2 = subplot(2, 1, 2);
-h_pwm   = animatedline('Color', [1.00 0.55 0.15], 'LineWidth', 2.0);  % Orange
-h_sat_u = yline(1023, 'r--', 'LineWidth', 1.2);                       % Max PWM limit
-h_sat_l = yline(-1023, 'r--', 'LineWidth', 1.2);
+h_omega_w = animatedline('Color', [1.00 0.55 0.15], 'LineWidth', 2.0);  % Orange
 grid on;
-ylabel('Motor PWM [Units]', 'Color', 'w');
+ylabel('Wheel Speed \omega_w [rad/s]', 'Color', 'w');
 xlabel('Time [s]', 'Color', 'w');
-title('Real-Time Commanded Motor Speed (PWM)', 'Color', 'w', 'FontSize', 12);
-legend('Commanded PWM', 'PWM Limit', 'TextColor', 'w', 'Location', 'northeast', 'Color', 'none', 'EdgeColor', 'none');
+title('Real-Time Estimated Reaction Wheel Velocity (\omega_w)', 'Color', 'w', 'FontSize', 12);
+legend('Reaction Wheel Speed', 'TextColor', 'w', 'Location', 'northeast', 'Color', 'none', 'EdgeColor', 'none');
 
 % Apply dark styling to axes
 for ax = [ax1, ax2]
@@ -147,6 +149,7 @@ end
 
 %% 4. Real-Time Acquisition & Mission Control Loop
 thetaZ = 0;             % Integrated attitude angle [rad]
+omega_w_est = 0;        % Estimated reaction wheel speed [rad/s]
 lastT = tic;            % Timer for dt calculation
 t0 = tic;               % Global timer
 sampling_rate = 10;     % Loop frequency (approx 10 Hz)
@@ -202,9 +205,10 @@ for k = 1:max_detumble_iterations
         dt = toc(lastT);
         lastT = tic;
         
-        % Integrate angle
+        % Integrate angle and estimate reaction wheel speed
         thetaZ = thetaZ + gz * dt;
         thetaDeg = rad2deg(thetaZ);
+        omega_w_est = omega_w_est + (tau_sat / Jw - tau_delay * omega_w_est) * dt;
         t = toc(t0);
         
         % Damping controller: u = -Kd * omega
@@ -219,7 +223,7 @@ for k = 1:max_detumble_iterations
         
         % Update Plots
         addpoints(h_theta, t, rad2deg(gz));
-        addpoints(h_pwm, t, pwm_cmd);
+        addpoints(h_omega_w, t, omega_w_est);
         drawnow limitrate;
         
         fprintf("t=%5.2fs | DETUMBLE | Gz=%7.4f rad/s (%5.2f deg/s) | Theta=%6.2f deg\n", ...
@@ -280,6 +284,10 @@ if isempty(theta_ref_deg) || ~isnumeric(theta_ref_deg)
 end
 theta_ref = deg2rad(theta_ref_deg);
 
+% Set Subplot 1 titles and labels for Pointing Phase
+title(ax1, 'Real-Time Spacecraft Attitude Angle (Phase 2: Pointing)', 'Color', 'w', 'FontSize', 12);
+ylabel(ax1, 'Attitude Angle \theta_z [deg]', 'Color', 'w');
+
 % Set reference line visible and update value
 set(h_ref, 'Value', theta_ref_deg);
 set(h_ref, 'Visible', 'on');
@@ -323,9 +331,10 @@ for k = 1:num_pointing_iterations
         dt = toc(lastT);
         lastT = tic;
         
-        % Integrate angle
+        % Integrate angle and estimate reaction wheel speed
         thetaZ = thetaZ + gz * dt;
         thetaDeg = rad2deg(thetaZ);
+        omega_w_est = omega_w_est + (tau_sat / Jw - tau_delay * omega_w_est) * dt;
         t = toc(t0);
         
         % Calculate wrapped error (shortest path)
@@ -348,7 +357,7 @@ for k = 1:num_pointing_iterations
         
         % Update Plots
         addpoints(h_theta, t, thetaDeg);
-        addpoints(h_pwm, t, pwm_cmd);
+        addpoints(h_omega_w, t, omega_w_est);
         drawnow limitrate;
         
         fprintf("t=%5.2fs | POINTING | Gz=%7.4f rad/s | Theta=%6.2f deg | Error=%6.2f deg | Torque=%8.5f mNm\n", ...
