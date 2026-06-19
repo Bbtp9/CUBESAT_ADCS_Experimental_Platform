@@ -186,9 +186,9 @@ void loop() {
     if (deviceConnected) {
       readAndSendSensors();
     } else {
-      // In standalone mode (unconnected), print to USB Serial at 1 Hz for debugging
+      // In standalone mode (unconnected), print to USB Serial at 10 Hz for debugging
       static unsigned long last_print_time = 0;
-      if (current_time - last_print_time >= 1000) {
+      if (current_time - last_print_time >= 100) {
         last_print_time = current_time;
         readAndSendSensors();
       }
@@ -242,7 +242,7 @@ void readAndSendSensors() {
 
   // 1. Read QMC5883P Magnetometer
   Wire.beginTransmission(MAG_ADDR);
-  Wire.write(0x00);
+  Wire.write(0x01);
   Wire.endTransmission();
 
   byte n = Wire.requestFrom(MAG_ADDR, (byte)6);
@@ -258,7 +258,7 @@ void readAndSendSensors() {
     my = (int16_t)((b3 << 8) | b2);
     mz = (int16_t)((b5 << 8) | b4);
 
-    heading = atan2((float)my, (float)mx) * 180.0 / PI;
+    heading = atan2((float)my + 57, (float)mx - 163) * 180.0 / PI;
     if (heading < 0) heading += 360.0;
   }
 
