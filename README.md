@@ -38,10 +38,24 @@ Modern CubeSats demand high-precision pointing and detumbling capabilities under
 The repository is organized into a clean, minimalist structure to facilitate navigation:
 
 ```
-CUBESAT_ADCS_Experimental_Platform/
+LICENȚĂ/
 ├── README.md                           # This documentation guide
 ├── LICENSE                             # MIT License
 ├── BachelorThesis_Final_Bianca.pdf     # The complete Bachelor Thesis PDF manuscript
+│
+├── Prezentare_Live/                    # LIVE DEMO PRESENTATION (Self-Contained)
+│   ├── MATLAB_to_BLE_POINTING.m        # Real-time BLE pointing controller coordinator
+│   ├── MATLAB_to_BLE_DETUMBL.m         # Real-time BLE detumbling coordinator
+│   ├── init_simulation_pd.m            # Pre-load PD/PID simulation parameters
+│   ├── init_simulation_lqr.m           # Pre-load LQR simulation parameters
+│   ├── plot_cubesat_results.m          # Ideal simulation plotting script
+│   ├── SerialHILSystemObject.m         # MATLAB System Object for USB Serial HIL
+│   ├── BLEHILSystemObject.m            # MATLAB System Object for BLE HIL
+│   ├── Cubesat_Control_PD.slx          # PD Attitude Control Loop Simulation
+│   ├── Cubesat_Control_LQR.slx         # LQR Attitude Control Loop Simulation
+│   ├── Motor_Satellite_Dynamics.slx    # Unified physical dynamics simulator
+│   ├── PID1.slx                        # Hardware-in-the-Loop model (Detumbling / Pointing)
+│   └── PID2.slx                        # Alternative HIL model configuration
 │
 ├── ESP32/                              # ESP32-C6 Arduino Firmware
 │   ├── CubeSat_HIL_BLE/                # Production firmware for wireless HIL telemetry
@@ -50,27 +64,13 @@ CUBESAT_ADCS_Experimental_Platform/
 │   ├── BLE_Test/                       # Simple BLE connection test
 │   └── BT_Classic_Test/                # Bluetooth Classic connection test (fallback)
 │
-├── MATLAB/                             # MATLAB Scripts & Data
-│   ├── init_simulation_lqr.m           # Pre-load LQR simulation parameters
-│   ├── init_simulation_pd.m            # Pre-load PD/PID simulation parameters
-│   ├── plot_cubesat_results.m          # Ideal simulation plotting script
-│   ├── magnetometer_calibration.m      # Hard-iron & soft-iron calibration script
-│   ├── mag1.txt                        # Raw magnetometer calibration data
-│   ├── Test_CubeSat_BLE_HIL.m          # Standalone MATLAB BLE telemetry scanner
-│   ├── MATLAB_to_BLE_POINTING.m        # Real-time BLE pointing controller coordinator
-│   ├── MATLAB_to_BLE_DETUMBL.m         # Real-time BLE detumbling coordinator
-│   ├── SerialHILSystemObject.m         # MATLAB System Object for USB Serial HIL
-│   ├── BLEHILSystemObject.m            # MATLAB System Object for BLE HIL
-│   ├── compare_sim_real.m              # Simulator vs. Real experimental comparison script
-│   ├── compare_pointing.m              # Comparative analysis of pointing controllers
-│   └── compare_detumble.m              # Comparative analysis of detumbling trials
-│
-└── Simulink/                           # Simulink Control Models
-    ├── Cubesat_Control_LQR.slx         # LQR Attitude Control Loop Simulation
-    ├── Cubesat_Control_PD.slx          # PD Attitude Control Loop Simulation
-    ├── Motor_Satellite_Dynamics.slx    # Unified physical dynamics simulator
-    ├── PID1.slx                        # Hardware-in-the-Loop model (Detumbling / Pointing)
-    └── PID2.slx                        # Alternative HIL model configuration
+└── Calibration_And_Analysis/           # Utilities & Calibration (Auxiliary)
+    ├── magnetometer_calibration.m      # Hard-iron & soft-iron calibration script
+    ├── mag1.txt                        # Raw magnetometer calibration data
+    ├── Test_CubeSat_BLE_HIL.m          # Standalone MATLAB BLE telemetry scanner
+    ├── compare_sim_real.m              # Simulator vs. Real experimental comparison script
+    ├── compare_pointing.m              # Comparative analysis of pointing controllers
+    └── compare_detumble.m              # Comparative analysis of detumbling trials
 ```
 
 ---
@@ -94,27 +94,22 @@ CUBESAT_ADCS_Experimental_Platform/
 
 ---
 
-## 🚀 Setup & Execution Guide
+## 🚀 Setup & Execution Guide (Presentation Mode)
 
-### 1. Calibration (Magnetometer)
-Before running experiments, the magnetometer must be calibrated to eliminate hard/soft-iron distortions:
-1. Run `ESP32/Check_Sensors` to ensure both I2C sensors are detected.
-2. Spin the CubeSat along its axes while reading raw values, or collect them to `mag1.txt`.
-3. Open MATLAB and run `MATLAB/magnetometer_calibration.m` to calculate the correction offset matrix.
+Open MATLAB and navigate into the `Prezentare_Live/` folder. All demonstration tasks are run from this folder.
 
-### 2. Running Simulations (Ideal)
-To test the controller design theoretically:
-1. Open MATLAB and navigate to the `MATLAB/` folder.
-2. Run `init_simulation_pd.m` or `init_simulation_lqr.m` to load parameters into the workspace.
-3. Open `Simulink/Cubesat_Control_PD.slx` or `Cubesat_Control_LQR.slx` and run the simulation.
-4. Use `plot_cubesat_results.m` to plot the response.
+### 1. Running Simulations (Ideal)
+To demonstrate the controller design theoretically:
+1. Run `init_simulation_pd.m` or `init_simulation_lqr.m` to load simulation parameters into the workspace.
+2. Open `Cubesat_Control_PD.slx` or `Cubesat_Control_LQR.slx` and click **Run**.
+3. Run `plot_cubesat_results.m` to plot the response curves (attitude, angular velocity, and motor torque).
 
-### 3. Running Hardware-in-the-Loop (HIL) Tests
-To run live wireless hardware experiments:
+### 2. Running Hardware-in-the-Loop (HIL) Tests
+To demonstrate the live physical ADCS system:
 1. Flash the ESP32 firmware located in `ESP32/CubeSat_HIL_BLE/` to the ESP32-C6 board.
-2. Ensure your computer's Bluetooth is turned on.
-3. Open and run `MATLAB/MATLAB_to_BLE_POINTING.m` (for active attitude control) or `MATLAB/MATLAB_to_BLE_DETUMBL.m` (for active detumbling).
-4. The script will automatically scan, connect, stream telemetry at 10 Hz, and command the motor driver in real time.
+2. Ensure your computer's Bluetooth is enabled.
+3. Run `MATLAB_to_BLE_POINTING.m` (for active target pointing control) or `MATLAB_to_BLE_DETUMBL.m` (for active detumbling).
+4. The script will automatically connect, stream telemetry at 10 Hz, and control the motor driver in real time.
 
 ---
 
